@@ -1,63 +1,47 @@
+# pages/1_Data_Input.py
+
 import streamlit as st
 import pandas as pd
 import io
 from utils.synthetic_data import generate_sample_datasets, create_synthetic_dataset
-from utils.data_processing import clean_and_process_data
+from utils.dataset_finder import search_kaggle_datasets, download_and_load_kaggle_dataset
 
 st.set_page_config(page_title="Data Input", page_icon="📁", layout="wide")
 
 st.title("📁 Data Input")
 st.markdown("Choose how you want to provide data for your machine learning project.")
 
-# Update workflow stage
 st.session_state.workflow_stage = 'data_input'
 
-# Handle sample prompts
 sample_prompt = st.session_state.get('sample_prompt', None)
 if sample_prompt:
     st.info(f"🎯 Quick Start: {sample_prompt.replace('_', ' ').title()}")
 
-# Three modes of data input
-tab1, tab2, tab3 = st.tabs(["📤 Upload Dataset", "🎲 Generate Synthetic Data", "🔍 Find Dataset"])
+tab1, tab2, tab3 = st.tabs(["📤 Upload Dataset", "🎲 Generate Synthetic Data", "🔍 Find Dataset (Kaggle)"])
 
 with tab1:
     st.header("Upload Your Dataset")
-    st.markdown("Upload a CSV file containing your dataset.")
-    
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
     
     if uploaded_file is not None:
         try:
-            # Read the uploaded file
             df = pd.read_csv(uploaded_file)
             st.success(f"Successfully loaded dataset with {len(df)} rows and {len(df.columns)} columns")
-            
-            # Display basic info
-            st.subheader("Dataset Preview")
             st.dataframe(df.head())
             
-            # Ask for target column
-            st.subheader("Select Target Column")
-            target_column = st.selectbox("Which column do you want to predict?", df.columns.tolist())
+            target_column = st.selectbox("Which column do you want to predict?", df.columns.tolist(), key="upload_target")
             
             if target_column:
-                # Determine problem type
                 unique_values = df[target_column].nunique()
                 is_numeric = pd.api.types.is_numeric_dtype(df[target_column])
                 
-                if is_numeric and unique_values > 10:
-                    problem_type = "regression"
-                    st.info("🎯 Detected: **Regression** problem (predicting continuous values)")
-                else:
-                    problem_type = "classification"
-                    st.info("🎯 Detected: **Classification** problem (predicting categories)")
+                problem_type = "regression" if is_numeric and unique_values > 10 else "classification"
+                st.info(f"🎯 Detected: **{problem_type.title()}** problem")
                 
-                if st.button("Proceed with this dataset", type="primary"):
+                if st.button("Proceed with this dataset", type="primary", key="upload_proceed"):
                     st.session_state.dataset = df
                     st.session_state.target_column = target_column
                     st.session_state.problem_type = problem_type
-                    st.session_state.workflow_stage = 'checkpoint_1'
-                    st.success("Dataset loaded successfully!")
                     st.switch_page("pages/2_Checkpoint_1_Dataset_Preview.py")
         
         except Exception as e:
@@ -65,9 +49,7 @@ with tab1:
 
 with tab2:
     st.header("Generate Synthetic Data")
-    st.markdown("Create a realistic synthetic dataset for your machine learning project.")
-    
-    # Sample datasets based on prompt
+    # ... (Keep the synthetic data generation code as it was)
     if sample_prompt:
         st.subheader("Suggested Dataset")
         sample_datasets = generate_sample_datasets()
@@ -77,91 +59,90 @@ with tab2:
             st.markdown(f"**{dataset_info['name']}**")
             st.markdown(f"*{dataset_info['description']}*")
             
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.markdown(f"**Problem Type:** {dataset_info['problem_type'].title()}")
-            with col2:
-                st.markdown(f"**Features:** {len(dataset_info['features'])} columns")
+            num_samples = st.slider("Number of samples to generate", 100, 5000, 1000, key="gen_samples")
             
-            num_samples = st.slider("Number of samples to generate", 100, 5000, 1000)
-            
-            if st.button(f"Generate {dataset_info['name']}", type="primary"):
+            if st.button(f"Generate {dataset_info['name']}", type="primary", key="gen_button"):
                 with st.spinner("Generating synthetic dataset..."):
                     df = create_synthetic_dataset(sample_prompt, num_samples)
-                    
                     st.session_state.dataset = df
                     st.session_state.target_column = dataset_info['target']
                     st.session_state.problem_type = dataset_info['problem_type']
-                    st.session_state.workflow_stage = 'checkpoint_1'
-                    
-                    st.success(f"Generated {len(df)} samples successfully!")
                     st.switch_page("pages/2_Checkpoint_1_Dataset_Preview.py")
     
     st.markdown("---")
-    
-    # Custom synthetic data generation
     st.subheader("Custom Synthetic Dataset")
-    
+    # ... (Keep the custom synthetic data generation code as it was)
     col1, col2 = st.columns(2)
-    
     with col1:
-        dataset_name = st.text_input("Dataset Name", "My Custom Dataset")
-        num_samples = st.slider("Number of samples", 100, 5000, 1000)
-        problem_type = st.selectbox("Problem Type", ["classification", "regression"])
-    
+        num_samples_custom = st.slider("Number of samples", 100, 5000, 1000, key="custom_samples")
+        problem_type_custom = st.selectbox("Problem Type", ["classification", "regression"], key="custom_problem")
     with col2:
-        num_features = st.slider("Number of features", 3, 20, 5)
-        noise_level = st.slider("Noise Level", 0.0, 0.5, 0.1)
-    
-    dataset_description = st.text_area("Dataset Description", "Custom synthetic dataset for machine learning")
-    
-    if st.button("Generate Custom Dataset", type="primary"):
+        num_features_custom = st.slider("Number of features", 3, 20, 5, key="custom_features")
+        noise_level_custom = st.slider("Noise Level", 0.0, 0.5, 0.1, key="custom_noise")
+    if st.button("Generate Custom Dataset", type="primary", key="custom_button"):
         with st.spinner("Generating custom synthetic dataset..."):
-            df = create_synthetic_dataset("custom", num_samples, {
-                'num_features': num_features,
-                'problem_type': problem_type,
-                'noise_level': noise_level
+            df = create_synthetic_dataset("custom", num_samples_custom, {
+                'num_features': num_features_custom,
+                'problem_type': problem_type_custom,
+                'noise_level': noise_level_custom
             })
-            
             st.session_state.dataset = df
             st.session_state.target_column = 'target'
-            st.session_state.problem_type = problem_type
-            st.session_state.workflow_stage = 'checkpoint_1'
-            
-            st.success(f"Generated custom dataset with {len(df)} samples!")
+            st.session_state.problem_type = problem_type_custom
             st.switch_page("pages/2_Checkpoint_1_Dataset_Preview.py")
 
 with tab3:
-    st.header("Find Dataset")
-    st.markdown("Search for suitable datasets from popular sources.")
-    
-    # Mock dataset discovery interface
-    search_query = st.text_input("Search for datasets", placeholder="e.g., house prices, customer data, sentiment analysis")
+    st.header("Find Dataset on Kaggle")
+    search_query = st.text_input("Search for datasets", placeholder="e.g., house prices, customer churn")
     
     if search_query:
-        st.info("🔍 Dataset discovery feature would integrate with platforms like Kaggle, UCI ML Repository, and other data sources.")
-        st.markdown("""
-        **Available Integration Options:**
-        - 🏆 Kaggle Datasets API
-        - 🎓 UCI Machine Learning Repository
-        - 📊 OpenML Datasets
-        - 🌐 Google Dataset Search
-        - 📈 Financial Data APIs
+        with st.spinner("Searching Kaggle..."):
+            search_results = search_kaggle_datasets(search_query)
         
-        *Note: This feature requires API keys and external service integration.*
-        """)
-        
-        st.warning("⚠️ Dataset discovery is not implemented in this demo. Please use Upload or Generate options.")
+        if search_results:
+            st.success(f"Found {len(search_results)} datasets.")
+            
+            for d in search_results:
+                with st.expander(f"**{d.title}** (Votes: {d.usability_rating})"):
+                    # st.markdown(f"Owner: `{d.ownerSlug}` | Size: `{d.size}`")
+                    st.markdown(f"Reference: `{d.ref}`")
+                    
+                    if st.button("Download and Preview this dataset", key=f"download_{d.ref}"):
+                        with st.spinner(f"Downloading {d.ref}..."):
+                            df = download_and_load_kaggle_dataset(d.ref)
+                            if df is not None:
+                                st.session_state.temp_df = df
+                                st.session_state.temp_df_name = d.title
 
-# Navigation
+        else:
+            st.warning("No datasets found matching your query.")
+
+    if 'temp_df' in st.session_state:
+        st.markdown("---")
+        st.subheader(f"Preview: {st.session_state.temp_df_name}")
+        st.dataframe(st.session_state.temp_df.head())
+
+        target_column_kaggle = st.selectbox(
+            "Select the target column to predict", 
+            st.session_state.temp_df.columns.tolist(),
+            key="kaggle_target"
+        )
+        if target_column_kaggle:
+            df = st.session_state.temp_df
+            unique_values = df[target_column_kaggle].nunique()
+            is_numeric = pd.api.types.is_numeric_dtype(df[target_column_kaggle])
+            
+            problem_type_kaggle = "regression" if is_numeric and unique_values > 10 else "classification"
+            st.info(f"🎯 Detected: **{problem_type_kaggle.title()}** problem")
+
+            if st.button("Proceed with this Kaggle dataset", type="primary", key="kaggle_proceed"):
+                st.session_state.dataset = st.session_state.temp_df
+                st.session_state.target_column = target_column_kaggle
+                st.session_state.problem_type = problem_type_kaggle
+                del st.session_state['temp_df']
+                del st.session_state['temp_df_name']
+                st.switch_page("pages/2_Checkpoint_1_Dataset_Preview.py")
+
 st.markdown("---")
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    if st.button("← Back to Welcome", use_container_width=True):
-        st.switch_page("app.py")
-
-with col2:
-    if st.session_state.dataset is not None:
-        if st.button("Next: Dataset Preview →", use_container_width=True, type="primary"):
-            st.switch_page("pages/2_Checkpoint_1_Dataset_Preview.py")
+if st.button("← Back to Welcome"):
+    st.switch_page("app.py")
