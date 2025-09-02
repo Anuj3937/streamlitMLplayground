@@ -2,32 +2,27 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, roc_curve, auc, precision_recall_curve
 import warnings
+from .error_handler import handle_errors
+
 warnings.filterwarnings('ignore')
 
+@handle_errors()
 def create_correlation_heatmap(df, title="Feature Correlation Matrix"):
-    """
-    Create a correlation heatmap for numeric features.
-    
-    Args:
-        df: DataFrame with numeric features
-        title: Title for the heatmap
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    # Select only numeric columns
+    """Create an enhanced correlation heatmap"""
     numeric_cols = df.select_dtypes(include=[np.number]).columns
-    
     if len(numeric_cols) < 2:
         return None
     
     # Calculate correlation matrix
     corr_matrix = df[numeric_cols].corr()
+    
+    # Create mask for better visualization
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
     
     # Create heatmap
     fig = go.Figure(data=go.Heatmap(
@@ -39,7 +34,8 @@ def create_correlation_heatmap(df, title="Feature Correlation Matrix"):
         text=np.round(corr_matrix.values, 2),
         texttemplate="%{text}",
         textfont={"size": 10},
-        hoverongaps=False
+        hoverongaps=False,
+        colorbar=dict(title="Correlation")
     ))
     
     fig.update_layout(
@@ -52,81 +48,68 @@ def create_correlation_heatmap(df, title="Feature Correlation Matrix"):
     
     return fig
 
+@handle_errors()
 def create_feature_distribution(df, feature_name, target_column=None, problem_type=None):
-    """
-    Create distribution plot for a feature, optionally colored by target.
-    
-    Args:
-        df: DataFrame containing the feature
-        feature_name: Name of the feature to plot
-        target_column: Name of target column for coloring
-        problem_type: 'classification' or 'regression'
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
+    """Create enhanced feature distribution plot"""
     if feature_name not in df.columns:
         return None
     
     feature_data = df[feature_name]
     
-    # Check if feature is numeric or categorical
     if pd.api.types.is_numeric_dtype(feature_data):
-        # Numeric feature - histogram
+        # Numeric feature
         if target_column and target_column in df.columns:
             if problem_type == "classification":
-                # Color by target classes
                 fig = px.histogram(
-                    df, 
-                    x=feature_name, 
+                    df,
+                    x=feature_name,
                     color=target_column,
                     title=f"Distribution of {feature_name} by {target_column}",
                     nbins=30,
-                    marginal="box"
+                    marginal="box",
+                    barmode='overlay',
+                    opacity=0.7
                 )
             else:
-                # Scatter plot for regression
                 fig = px.scatter(
-                    df, 
-                    x=feature_name, 
+                    df,
+                    x=feature_name,
                     y=target_column,
                     title=f"{feature_name} vs {target_column}",
-                    trendline="ols"
+                    trendline="ols",
+                    opacity=0.6
                 )
         else:
-            # Simple histogram
             fig = px.histogram(
-                df, 
+                df,
                 x=feature_name,
                 title=f"Distribution of {feature_name}",
-                nbins=30
+                nbins=30,
+                marginal="box"
             )
     else:
-        # Categorical feature - bar chart
-        value_counts = feature_data.value_counts().head(20)  # Top 20 categories
+        # Categorical feature
+        value_counts = feature_data.value_counts().head(20)
         
         if target_column and target_column in df.columns and problem_type == "classification":
-            # Stacked bar chart by target
+            # Stacked bar chart
             crosstab = pd.crosstab(df[feature_name], df[target_column])
-            crosstab_pct = crosstab.div(crosstab.sum(axis=1), axis=0) * 100
             
             fig = go.Figure()
-            for target_class in crosstab_pct.columns:
+            for target_class in crosstab.columns:
                 fig.add_trace(go.Bar(
                     name=f"{target_column}={target_class}",
-                    x=crosstab_pct.index,
-                    y=crosstab_pct[target_class]
+                    x=crosstab.index,
+                    y=crosstab[target_class]
                 ))
             
             fig.update_layout(
                 title=f"{feature_name} Distribution by {target_column}",
                 xaxis_title=feature_name,
-                yaxis_title="Percentage",
+                yaxis_title="Count",
                 barmode='stack'
             )
         else:
-            # Simple bar chart
             fig = px.bar(
                 x=value_counts.index,
                 y=value_counts.values,
@@ -136,121 +119,9 @@ def create_feature_distribution(df, feature_name, target_column=None, problem_ty
     
     return fig
 
-def create_confusion_matrix(y_true, y_pred, class_names=None, title="Confusion Matrix"):
-    """
-    Create a confusion matrix heatmap.
-    
-    Args:
-        y_true: True labels
-        y_pred: Predicted labels
-        class_names: Names of classes (optional)
-        title: Title for the plot
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    # Calculate confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    
-    # Create class names if not provided
-    if class_names is None:
-        unique_labels = sorted(list(set(y_true) | set(y_pred)))
-        class_names = [f"Class {label}" for label in unique_labels]
-    
-    # Create heatmap
-    fig = go.Figure(data=go.Heatmap(
-        z=cm,
-        x=class_names,
-        y=class_names,
-        text=cm,
-        texttemplate="%{text}",
-        textfont={"size": 16},
-        colorscale='Blues',
-        showscale=True
-    ))
-    
-    fig.update_layout(
-        title=title,
-        xaxis_title="Predicted",
-        yaxis_title="Actual",
-        height=500,
-        width=500
-    )
-    
-    # Add accuracy annotations
-    accuracy = np.trace(cm) / np.sum(cm)
-    fig.add_annotation(
-        text=f"Accuracy: {accuracy:.3f}",
-        xref="paper", yref="paper",
-        x=0.02, y=0.98,
-        showarrow=False,
-        font=dict(size=14, color="black"),
-        bgcolor="white",
-        bordercolor="black",
-        borderwidth=1
-    )
-    
-    return fig
-
-def create_feature_importance_plot(feature_names, importance_values, title="Feature Importance", top_n=15):
-    """
-    Create a horizontal bar plot for feature importance.
-    
-    Args:
-        feature_names: List of feature names
-        importance_values: List of importance values
-        title: Title for the plot
-        top_n: Number of top features to show
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    if len(feature_names) != len(importance_values):
-        return None
-    
-    # Create DataFrame and sort by importance
-    importance_df = pd.DataFrame({
-        'Feature': feature_names,
-        'Importance': importance_values
-    }).sort_values('Importance', ascending=True)
-    
-    # Take top N features
-    importance_df = importance_df.tail(top_n)
-    
-    # Create horizontal bar chart
-    fig = px.bar(
-        importance_df,
-        x='Importance',
-        y='Feature',
-        orientation='h',
-        title=title,
-        color='Importance',
-        color_continuous_scale='viridis'
-    )
-    
-    fig.update_layout(
-        height=max(400, len(importance_df) * 30),
-        yaxis={'categoryorder': 'total ascending'},
-        showlegend=False
-    )
-    
-    return fig
-
+@handle_errors()
 def create_model_comparison_chart(results_df, metric_name, title=None):
-    """
-    Create a bar chart comparing model performance.
-    
-    Args:
-        results_df: DataFrame with model results
-        metric_name: Name of the metric to compare
-        title: Title for the chart
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
+    """Create enhanced model comparison chart"""
     if metric_name not in results_df.columns:
         return None
     
@@ -260,7 +131,7 @@ def create_model_comparison_chart(results_df, metric_name, title=None):
     # Sort by metric value
     sorted_df = results_df.sort_values(metric_name, ascending=True)
     
-    # Create bar chart
+    # Create horizontal bar chart
     fig = px.bar(
         sorted_df,
         x=metric_name,
@@ -281,62 +152,185 @@ def create_model_comparison_chart(results_df, metric_name, title=None):
     
     return fig
 
-def create_residual_plot(y_true, y_pred, title="Residual Plot"):
-    """
-    Create a residual plot for regression models.
+@handle_errors()
+def create_confusion_matrix_plot(y_true, y_pred, class_names=None, title="Confusion Matrix"):
+    """Create enhanced confusion matrix visualization"""
+    cm = confusion_matrix(y_true, y_pred)
     
-    Args:
-        y_true: True values
-        y_pred: Predicted values
-        title: Title for the plot
+    if class_names is None:
+        unique_labels = sorted(list(set(y_true) | set(y_pred)))
+        class_names = [f"Class {label}" for label in unique_labels]
     
-    Returns:
-        fig: Plotly figure object
-    """
+    # Calculate percentages
+    cm_percent = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
     
-    residuals = np.array(y_true) - np.array(y_pred)
+    # Create annotations
+    annotations = []
+    for i in range(len(cm)):
+        for j in range(len(cm[0])):
+            annotations.append(f"{cm[i][j]}<br>({cm_percent[i][j]:.1f}%)")
     
-    # Create scatter plot
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=y_pred,
-        y=residuals,
-        mode='markers',
-        name='Residuals',
-        marker=dict(
-            color='blue',
-            opacity=0.6,
-            size=6
-        )
+    fig = go.Figure(data=go.Heatmap(
+        z=cm,
+        x=class_names,
+        y=class_names,
+        text=np.array(annotations).reshape(cm.shape),
+        texttemplate="%{text}",
+        textfont={"size": 14},
+        colorscale='Blues',
+        showscale=True,
+        colorbar=dict(title="Count")
     ))
-    
-    # Add horizontal line at y=0
-    fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
     
     fig.update_layout(
         title=title,
-        xaxis_title="Predicted Values",
-        yaxis_title="Residuals",
-        height=500
+        xaxis_title="Predicted",
+        yaxis_title="Actual",
+        height=500,
+        width=500
+    )
+    
+    # Add accuracy annotation
+    accuracy = np.trace(cm) / np.sum(cm)
+    fig.add_annotation(
+        text=f"Accuracy: {accuracy:.1%}",
+        xref="paper", yref="paper",
+        x=0.02, y=0.98,
+        showarrow=False,
+        font=dict(size=16, color="black"),
+        bgcolor="white",
+        bordercolor="black",
+        borderwidth=1
     )
     
     return fig
 
-def create_learning_curve(train_scores, val_scores, train_sizes, title="Learning Curve"):
-    """
-    Create a learning curve plot.
+@handle_errors()
+def create_roc_curve_plot(y_true, y_pred_proba, title="ROC Curve"):
+    """Create ROC curve visualization"""
+    try:
+        fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
+        roc_auc = auc(fpr, tpr)
+        
+        fig = go.Figure()
+        
+        # ROC curve
+        fig.add_trace(go.Scatter(
+            x=fpr,
+            y=tpr,
+            mode='lines',
+            name=f'ROC Curve (AUC = {roc_auc:.3f})',
+            line=dict(color='blue', width=3)
+        ))
+        
+        # Diagonal line
+        fig.add_trace(go.Scatter(
+            x=[0, 1],
+            y=[0, 1],
+            mode='lines',
+            name='Random Classifier',
+            line=dict(color='red', dash='dash', width=2)
+        ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_title="False Positive Rate",
+            yaxis_title="True Positive Rate",
+            height=500,
+            width=500,
+            showlegend=True
+        )
+        
+        return fig
+        
+    except Exception as e:
+        return None
+
+@handle_errors()
+def create_precision_recall_curve_plot(y_true, y_pred_proba, title="Precision-Recall Curve"):
+    """Create precision-recall curve visualization"""
+    try:
+        from sklearn.metrics import average_precision_score
+        
+        precision, recall, _ = precision_recall_curve(y_true, y_pred_proba)
+        avg_precision = average_precision_score(y_true, y_pred_proba)
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=recall,
+            y=precision,
+            mode='lines',
+            name=f'PR Curve (AP = {avg_precision:.3f})',
+            line=dict(color='blue', width=3),
+            fill='tonexty'
+        ))
+        
+        fig.update_layout(
+            title=title,
+            xaxis_title="Recall",
+            yaxis_title="Precision",
+            height=500,
+            width=500
+        )
+        
+        return fig
+        
+    except Exception as e:
+        return None
+
+@handle_errors()
+def create_residual_plot(y_true, y_pred, title="Residual Analysis"):
+    """Create residual plot for regression"""
+    residuals = np.array(y_true) - np.array(y_pred)
     
-    Args:
-        train_scores: Training scores for different training sizes
-        val_scores: Validation scores for different training sizes
-        train_sizes: Different training set sizes
-        title: Title for the plot
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("Residuals vs Predictions", "Residuals Distribution")
+    )
     
-    Returns:
-        fig: Plotly figure object
-    """
+    # Residuals vs Predictions
+    fig.add_trace(
+        go.Scatter(
+            x=y_pred,
+            y=residuals,
+            mode='markers',
+            name='Residuals',
+            marker=dict(color='blue', opacity=0.6)
+        ),
+        row=1, col=1
+    )
     
+    # Add horizontal line at y=0
+    fig.add_hline(y=0, line_dash="dash", line_color="red", row=1, col=1)
+    
+    # Residuals distribution
+    fig.add_trace(
+        go.Histogram(
+            x=residuals,
+            name='Distribution',
+            marker=dict(color='lightblue'),
+            showlegend=False
+        ),
+        row=1, col=2
+    )
+    
+    fig.update_layout(
+        title=title,
+        height=400,
+        showlegend=False
+    )
+    
+    fig.update_xaxes(title_text="Predicted Values", row=1, col=1)
+    fig.update_yaxes(title_text="Residuals", row=1, col=1)
+    fig.update_xaxes(title_text="Residuals", row=1, col=2)
+    fig.update_yaxes(title_text="Frequency", row=1, col=2)
+    
+    return fig
+
+@handle_errors()
+def create_learning_curve_plot(train_scores, val_scores, train_sizes, title="Learning Curve"):
+    """Create learning curve visualization"""
     fig = go.Figure()
     
     # Training scores
@@ -376,137 +370,9 @@ def create_learning_curve(train_scores, val_scores, train_sizes, title="Learning
     
     return fig
 
-def create_roc_curve(y_true, y_pred_proba, title="ROC Curve"):
-    """
-    Create ROC curve for binary classification.
-    
-    Args:
-        y_true: True binary labels
-        y_pred_proba: Predicted probabilities for positive class
-        title: Title for the plot
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    try:
-        from sklearn.metrics import roc_curve, auc
-        
-        fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
-        roc_auc = auc(fpr, tpr)
-        
-        fig = go.Figure()
-        
-        # ROC curve
-        fig.add_trace(go.Scatter(
-            x=fpr,
-            y=tpr,
-            mode='lines',
-            name=f'ROC Curve (AUC = {roc_auc:.3f})',
-            line=dict(color='blue', width=2)
-        ))
-        
-        # Diagonal line (random classifier)
-        fig.add_trace(go.Scatter(
-            x=[0, 1],
-            y=[0, 1],
-            mode='lines',
-            name='Random Classifier',
-            line=dict(color='red', dash='dash')
-        ))
-        
-        fig.update_layout(
-            title=title,
-            xaxis_title="False Positive Rate",
-            yaxis_title="True Positive Rate",
-            height=500,
-            width=500
-        )
-        
-        return fig
-        
-    except ImportError:
-        return None
-
-def create_precision_recall_curve(y_true, y_pred_proba, title="Precision-Recall Curve"):
-    """
-    Create precision-recall curve for binary classification.
-    
-    Args:
-        y_true: True binary labels
-        y_pred_proba: Predicted probabilities for positive class
-        title: Title for the plot
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    try:
-        from sklearn.metrics import precision_recall_curve, average_precision_score
-        
-        precision, recall, _ = precision_recall_curve(y_true, y_pred_proba)
-        avg_precision = average_precision_score(y_true, y_pred_proba)
-        
-        fig = go.Figure()
-        
-        fig.add_trace(go.Scatter(
-            x=recall,
-            y=precision,
-            mode='lines',
-            name=f'PR Curve (AP = {avg_precision:.3f})',
-            line=dict(color='blue', width=2)
-        ))
-        
-        fig.update_layout(
-            title=title,
-            xaxis_title="Recall",
-            yaxis_title="Precision",
-            height=500,
-            width=500
-        )
-        
-        return fig
-        
-    except ImportError:
-        return None
-
-def create_class_distribution_pie(y, title="Class Distribution"):
-    """
-    Create a pie chart showing class distribution.
-    
-    Args:
-        y: Target variable
-        title: Title for the plot
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
-    class_counts = pd.Series(y).value_counts()
-    
-    fig = px.pie(
-        values=class_counts.values,
-        names=class_counts.index,
-        title=title
-    )
-    
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    
-    return fig
-
+@handle_errors()
 def create_prediction_vs_actual_plot(y_true, y_pred, title="Predictions vs Actual"):
-    """
-    Create a scatter plot of predictions vs actual values for regression.
-    
-    Args:
-        y_true: True values
-        y_pred: Predicted values
-        title: Title for the plot
-    
-    Returns:
-        fig: Plotly figure object
-    """
-    
+    """Create predictions vs actual scatter plot"""
     fig = go.Figure()
     
     # Scatter plot
@@ -531,7 +397,7 @@ def create_prediction_vs_actual_plot(y_true, y_pred, title="Predictions vs Actua
         y=[min_val, max_val],
         mode='lines',
         name='Perfect Prediction',
-        line=dict(color='red', dash='dash')
+        line=dict(color='red', dash='dash', width=2)
     ))
     
     fig.update_layout(
@@ -540,6 +406,36 @@ def create_prediction_vs_actual_plot(y_true, y_pred, title="Predictions vs Actua
         yaxis_title="Predicted Values",
         height=500,
         width=500
+    )
+    
+    return fig
+
+@handle_errors()
+def create_feature_importance_plot(feature_names, importance_values, title="Feature Importance", top_n=15):
+    """Create feature importance horizontal bar plot"""
+    if len(feature_names) != len(importance_values):
+        return None
+    
+    # Create DataFrame and sort
+    importance_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': importance_values
+    }).sort_values('Importance', ascending=True).tail(top_n)
+    
+    fig = px.bar(
+        importance_df,
+        x='Importance',
+        y='Feature',
+        orientation='h',
+        title=title,
+        color='Importance',
+        color_continuous_scale='viridis'
+    )
+    
+    fig.update_layout(
+        height=max(400, len(importance_df) * 30),
+        yaxis={'categoryorder': 'total ascending'},
+        showlegend=False
     )
     
     return fig
