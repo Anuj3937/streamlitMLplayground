@@ -1,5 +1,3 @@
-# utils/interactive_synthetic_generator.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,7 +16,7 @@ class InteractiveSyntheticDataGenerator:
     @handle_errors()
     def run_interactive_generator(self):
         """Main interactive interface"""
-        st.title("🤖 AI-Powered Synthetic Data Generator")
+        st.markdown("## 🤖 AI-Powered Synthetic Data Generator")
         st.markdown("Tell me about the dataset you want to create, and I'll generate it for you!")
         
         # Initialize session state

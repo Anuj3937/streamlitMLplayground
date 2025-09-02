@@ -10,6 +10,12 @@ def inject_custom_css():
     /* Import Google Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
+    /* Hide default Streamlit elements */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {visibility: hidden;}
+    
     /* Root variables */
     :root {
         --primary-color: #2E86AB;
@@ -78,48 +84,27 @@ def inject_custom_css():
         border-radius: 0 var(--border-radius) var(--border-radius) 0;
     }
     
-    /* Progress indicators */
-    .progress-tracker {
-        display: flex;
-        justify-content: space-between;
-        margin: 2rem 0;
+    /* Enhanced sidebar styling */
+    .css-1d391kg {
+        background-color: var(--background-color);
+    }
+    
+    .sidebar-nav {
+        background: white;
+        border-radius: 10px;
         padding: 1rem;
-        background: var(--surface-color);
-        border-radius: var(--border-radius);
+        margin: 1rem 0;
         box-shadow: var(--shadow);
     }
     
+    /* Progress indicators */
     .progress-step {
         display: flex;
-        flex-direction: column;
         align-items: center;
-        padding: 1rem;
+        padding: 0.5rem;
+        margin: 0.25rem 0;
         border-radius: var(--border-radius);
         transition: all 0.3s ease;
-        flex: 1;
-        margin: 0 0.25rem;
-        position: relative;
-    }
-    
-    .progress-step:not(:last-child)::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        right: -50%;
-        width: 100%;
-        height: 2px;
-        background: var(--border-color);
-        z-index: -1;
-    }
-    
-    .progress-step.completed::after {
-        background: var(--success-color);
-    }
-    
-    .progress-step.active {
-        background: var(--primary-color);
-        color: white;
-        transform: scale(1.05);
     }
     
     .progress-step.completed {
@@ -127,20 +112,14 @@ def inject_custom_css():
         color: white;
     }
     
+    .progress-step.active {
+        background: var(--primary-color);
+        color: white;
+    }
+    
     .progress-step.pending {
         background: var(--background-color);
         color: var(--text-secondary);
-    }
-    
-    .step-icon {
-        font-size: 1.5rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .step-name {
-        font-size: 0.9rem;
-        font-weight: 500;
-        text-align: center;
     }
     
     /* Button enhancements */
@@ -189,10 +168,6 @@ def inject_custom_css():
         animation: fadeIn 0.6s ease-in;
     }
     
-    .slide-up {
-        animation: slideUp 0.5s ease-out;
-    }
-    
     @keyframes fadeIn {
         from { 
             opacity: 0; 
@@ -204,33 +179,17 @@ def inject_custom_css():
         }
     }
     
-    @keyframes slideUp {
-        from { 
-            transform: translateY(30px); 
-            opacity: 0; 
-        }
-        to { 
-            transform: translateY(0); 
-            opacity: 1; 
-        }
+    /* Radio button styling for navigation */
+    .stRadio > div {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        box-shadow: var(--shadow);
     }
     
-    /* Improved dataframe styling */
-    .dataframe {
-        border: 1px solid var(--border-color);
-        border-radius: var(--border-radius);
-        overflow: hidden;
+    .stRadio > div > div {
+        gap: 0.5rem;
     }
-    
-    /* Sidebar enhancements */
-    .css-1d391kg {
-        background-color: var(--background-color);
-    }
-    
-    /* Hide Streamlit menu and footer */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -296,8 +255,11 @@ def create_alert(message: str, alert_type: str = "info") -> None:
     """, unsafe_allow_html=True)
 
 def render_progress_tracker(current_stage: str) -> None:
-    """Render an enhanced progress tracker"""
+    """Simple progress tracker using Streamlit widgets"""
+    st.markdown("### 🔄 ML Pipeline Progress")
+    
     stages = [
+        ("🏠", "Welcome", "welcome"),
         ("📁", "Data Input", "data_input"),
         ("🔍", "Preview", "checkpoint_1"), 
         ("💻", "Code Gen", "checkpoint_2"),
@@ -309,27 +271,158 @@ def render_progress_tracker(current_stage: str) -> None:
     try:
         current_idx = [s[2] for s in stages].index(current_stage)
     except ValueError:
-        current_idx = -1
+        current_idx = 0
     
-    progress_html = '<div class="progress-tracker">'
+    # Progress bar
+    progress = (current_idx + 1) / len(stages)
+    st.progress(progress, text=f"Step {current_idx + 1}/{len(stages)}: {stages[current_idx][1]}")
     
-    for i, (icon, name, stage_key) in enumerate(stages):
-        if i == current_idx:
-            status = "active"
-        elif i < current_idx:
-            status = "completed"
-        else:
-            status = "pending"
+    # Step indicators in columns
+    cols = st.columns(len(stages))
+    for i, (icon, name, _) in enumerate(stages):
+        with cols[i]:
+            if i < current_idx:
+                st.markdown(f"✅ {icon}")
+                st.caption(f"~~{name}~~")
+            elif i == current_idx:
+                st.markdown(f"🔄 {icon}")
+                st.caption(f"**{name}**")
+            else:
+                st.markdown(f"⏳ {icon}")
+                st.caption(name)
+
+def sidebar_navigation() -> None:
+    """Enhanced sidebar navigation with proper Streamlit widgets"""
+    with st.sidebar:
+        st.markdown("## 🔘 Navigation")
         
-        progress_html += f"""
-        <div class="progress-step {status}">
-            <div class="step-icon">{icon}</div>
-            <div class="step-name">{name}</div>
-        </div>
-        """
-    
-    progress_html += "</div>"
-    st.markdown(progress_html, unsafe_allow_html=True)
+        # Get current stage
+        current_stage = st.session_state.get('workflow_stage', 'welcome')
+        
+        # Navigation options
+        nav_options = [
+            ("🏠", "Welcome", "welcome", "app.py"),
+            ("📁", "Data Input", "data_input", "pages/1_Data_Input.py"),
+            ("🔍", "Dataset Preview", "checkpoint_1", "pages/2_Dataset_Preview.py"),
+            ("💻", "Code Editor", "checkpoint_2", "pages/3_Code_Editor.py"),
+            ("📊", "Model Comparison", "checkpoint_3", "pages/4_Model_Comparison.py"),
+            ("🎯", "Results Dashboard", "results", "pages/5_Results_Dashboard.py"),
+            ("🎮", "Demo Generator", "demo_app", "pages/6_Demo_Generator.py")
+        ]
+        
+        # Create navigation menu
+        nav_labels = [f"{icon} {name}" for icon, name, _, _ in nav_options]
+        nav_keys = [key for _, _, key, _ in nav_options]
+        nav_pages = [page for _, _, _, page in nav_options]
+        
+        try:
+            current_index = nav_keys.index(current_stage)
+        except ValueError:
+            current_index = 0
+        
+        # Custom styling for radio buttons
+        st.markdown('<div class="sidebar-nav">', unsafe_allow_html=True)
+        
+        selected = st.radio(
+            "Navigate to:",
+            nav_labels,
+            index=current_index,
+            key="sidebar_nav",
+            label_visibility="collapsed"
+        )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Handle navigation
+        selected_index = nav_labels.index(selected)
+        selected_key = nav_keys[selected_index]
+        selected_page = nav_pages[selected_index]
+        
+        if selected_key != current_stage:
+            st.switch_page(selected_page)
+        
+        st.markdown("---")
+        
+        # Workflow status
+        st.markdown("### 📊 Workflow Status")
+        
+        # Progress indicators
+        progress_stages = [
+            ("welcome", "Welcome", "✅"),
+            ("data_input", "Data Input", "✅" if st.session_state.get('dataset') is not None else "⏳"),
+            ("checkpoint_1", "Data Processing", "✅" if st.session_state.get('data_validation_passed') else "⏳"),
+            ("checkpoint_2", "Code Generation", "✅" if st.session_state.get('generated_code') else "⏳"),
+            ("checkpoint_3", "Model Training", "✅" if st.session_state.get('model_results') else "⏳"),
+            ("results", "Results Analysis", "✅" if st.session_state.get('best_model') else "⏳"),
+            ("demo_app", "Demo Ready", "✅" if st.session_state.get('demo_generated') else "⏳")
+        ]
+        
+        for stage_key, stage_name, status in progress_stages:
+            if stage_key == current_stage:
+                st.markdown(f"🔄 **{stage_name}**")
+            else:
+                st.markdown(f"{status} {stage_name}")
+        
+        st.markdown("---")
+        
+        # Dataset info
+        if st.session_state.get('dataset') is not None:
+            st.markdown("### 📈 Dataset Info")
+            df = st.session_state.dataset
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Rows", f"{len(df):,}")
+                st.metric("Columns", f"{len(df.columns):,}")
+            
+            with col2:
+                if st.session_state.get('target_column'):
+                    st.metric("Target", st.session_state.target_column)
+                if st.session_state.get('problem_type'):
+                    st.metric("Type", st.session_state.problem_type.title())
+        
+        # Model info
+        if st.session_state.get('best_model'):
+            st.markdown("### 🏆 Best Model")
+            best_model = st.session_state.best_model
+            
+            st.metric("Algorithm", best_model.get('name', 'Unknown'))
+            
+            if st.session_state.get('problem_type') == 'classification':
+                acc = best_model.get('accuracy', 0)
+                st.metric("Accuracy", f"{acc:.1%}")
+            else:
+                r2 = best_model.get('r2_score', 0)
+                st.metric("R² Score", f"{r2:.3f}")
+        
+        st.markdown("---")
+        
+        # Quick actions
+        st.markdown("### ⚡ Quick Actions")
+        
+        if st.button("🔄 Reset Workflow", use_container_width=True, help="Clear all data and start over"):
+            # Clear session state
+            keys_to_clear = [
+                'dataset', 'target_column', 'problem_type', 'generated_code',
+                'model_results', 'best_model', 'data_validation_passed'
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.workflow_stage = 'welcome'
+            st.switch_page("app.py")
+        
+        if st.session_state.get('dataset') is not None:
+            if st.button("💾 Export Data", use_container_width=True, help="Download current dataset"):
+                df = st.session_state.dataset
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv,
+                    file_name="exported_dataset.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
 def create_comparison_table(df: pd.DataFrame, highlight_cols: List[str] = None) -> None:
     """Create an enhanced comparison table"""
@@ -355,63 +448,6 @@ def create_expandable_code(code: str, title: str = "Code", language: str = "pyth
 def create_loading_animation(text: str = "Processing...") -> Any:
     """Create a loading animation context manager"""
     return st.spinner(text)
-
-def sidebar_navigation() -> None:
-    """Enhanced sidebar navigation"""
-    with st.sidebar:
-        st.markdown("### 📋 Workflow Progress")
-        
-        # Get current stage
-        current_stage = st.session_state.get('workflow_stage', 'welcome')
-        
-        # Progress stages
-        progress_stages = [
-            ("🏠", "Welcome", "welcome"),
-            ("📁", "Data Input", "data_input"),
-            ("🔍", "Dataset Preview", "checkpoint_1"),
-            ("💻", "Code Editor", "checkpoint_2"),
-            ("📊", "Model Comparison", "checkpoint_3"),
-            ("🎯", "Results Dashboard", "results"),
-            ("🎮", "Demo Generator", "demo_app")
-        ]
-        
-        for icon, stage_name, stage_key in progress_stages:
-            if stage_key == current_stage:
-                st.markdown(f"**{icon} {stage_name}** ✅")
-            elif stage_key in ['welcome', 'data_input']:
-                st.markdown(f"✅ {icon} {stage_name}")
-            elif st.session_state.get(f'{stage_key}_completed', False):
-                st.markdown(f"✅ {icon} {stage_name}")
-            else:
-                st.markdown(f"⏳ {icon} {stage_name}")
-        
-        st.markdown("---")
-        
-        # Quick stats
-        if st.session_state.get('dataset') is not None:
-            df = st.session_state.dataset
-            st.markdown("### 📊 Dataset Info")
-            st.markdown(f"**Rows:** {len(df):,}")
-            st.markdown(f"**Columns:** {len(df.columns):,}")
-            
-            if st.session_state.get('target_column'):
-                st.markdown(f"**Target:** {st.session_state.target_column}")
-            
-            if st.session_state.get('problem_type'):
-                st.markdown(f"**Type:** {st.session_state.problem_type.title()}")
-        
-        # Model info
-        if st.session_state.get('best_model'):
-            st.markdown("### 🏆 Best Model")
-            best_model = st.session_state.best_model
-            st.markdown(f"**Algorithm:** {best_model.get('name', 'Unknown')}")
-            
-            if st.session_state.problem_type == 'classification':
-                acc = best_model.get('accuracy', 0)
-                st.markdown(f"**Accuracy:** {acc:.1%}")
-            else:
-                r2 = best_model.get('r2_score', 0)
-                st.markdown(f"**R² Score:** {r2:.3f}")
 
 def display_feature_importance(feature_names: List[str], importance_values: List[float], top_n: int = 10) -> None:
     """Display feature importance with enhanced styling"""
