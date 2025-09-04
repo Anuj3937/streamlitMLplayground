@@ -1,9 +1,12 @@
+# pages/4_Checkpoint_3_Model_Comparison.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from utils.visualizations import create_confusion_matrix, create_feature_importance_plot
+
+from utils.visualizations import create_confusion_matrix
 
 st.set_page_config(page_title="Checkpoint 3: Model Comparison", page_icon="📈", layout="wide")
 
@@ -13,7 +16,7 @@ st.markdown("Compare model performance and select the best algorithm for your pr
 # Update workflow stage
 st.session_state.workflow_stage = 'checkpoint_3'
 
-# Check if model results exist
+# Guard: results must exist
 if st.session_state.get('model_results') is None:
     st.warning("No model results found. Please complete Checkpoint 2 first.")
     if st.button("← Go to Code Editor"):
@@ -24,129 +27,100 @@ results = st.session_state.model_results
 problem_type = st.session_state.problem_type
 target_column = st.session_state.target_column
 
+# Convert comparison to DataFrame
+models_df = pd.DataFrame(results.get('model_comparison', []))
+best_model = results.get('best_model', {})
+
+# Utility to derive metric from table if missing in best_model payload
+def _derive_metric(df: pd.DataFrame, name: str, higher_is_better: bool = True):
+    try:
+        if name in df.columns and len(df) > 0 and pd.api.types.is_numeric_dtype(df[name]):
+            row = df.sort_values(name, ascending=not higher_is_better).iloc
+            return float(row[name])
+    except Exception:
+        pass
+    return None
+
 # Results Overview
 st.header("🏆 Model Performance Overview")
 
-# Extract performance metrics
-models_df = pd.DataFrame(results['model_comparison'])
-best_model = results['best_model']
-
-# Display key metrics
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Best Model", best_model['name'])
+    st.metric("Best Model", best_model.get('name', 'N/A'))
 
 with col2:
     if problem_type == "classification":
-        st.metric("Best Accuracy", f"{best_model['accuracy']:.3f}")
+        acc = best_model.get('accuracy')
+        if acc is None:
+            acc = _derive_metric(models_df, 'accuracy', higher_is_better=True)
+        st.metric("Best Accuracy", f"{acc:.3f}" if acc is not None else "N/A")
     else:
-        st.metric("Best R² Score", f"{best_model['r2_score']:.3f}")
+        r2 = best_model.get('r2_score')
+        if r2 is None:
+            r2 = _derive_metric(models_df, 'r2_score', higher_is_better=True)
+        st.metric("Best R² Score", f"{r2:.3f}" if r2 is not None else "N/A")
 
 with col3:
     st.metric("Models Tested", len(models_df))
 
 with col4:
-    if 'improvement_applied' in results:
-        st.metric("Improvements", "Applied" if results['improvement_applied'] else "None")
-    else:
-        st.metric("Improvements", "None")
+    st.metric("Improvements", "Applied" if results.get('improvement_applied') else "None")
 
 # Model Comparison Table
 st.header("📊 Detailed Model Comparison")
 
-# Format the comparison table
+# Ensure numeric columns are rounded for display
 display_df = models_df.copy()
 for col in display_df.columns:
-    if display_df[col].dtype == 'float64':
-        display_df[col] = display_df[col].round(4)
-
+    if pd.api.types.is_numeric_dtype(display_df[col]):
+        display_df[col] = display_df[col].astype(float).round(4)
 st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 # Performance Visualizations
 st.header("📈 Performance Visualizations")
+tab1, tab2, tab3, tab4 = st.tabs(["Model Comparison", "Best Model Details", "Feature Importance", "Confusion/Residuals"])
 
-tab1, tab2, tab3, tab4 = st.tabs(["Model Comparison", "Best Model Details", "Feature Importance", "Confusion Matrix"])
-
+# Tab 1: Model Performance Comparison
 with tab1:
     st.subheader("Model Performance Comparison")
-    
-    # Create comparison charts
+
     if problem_type == "classification":
         metrics = ['accuracy', 'precision', 'recall', 'f1_score']
-        metric_names = ['Accuracy', 'Precision', 'Recall', 'F1-Score']
+        present = [m for m in metrics if m in models_df.columns]
+        if len(present) == 0:
+            st.info("No classification metrics found in results. Please re-run training.")
+        else:
+            # Bar chart for primary metric (accuracy if present, else first available)
+            primary = 'accuracy' if 'accuracy' in present else present
+            fig = px.bar(
+                models_df.sort_values(primary, ascending=False),
+                x='model', y=primary, color=primary, color_continuous_scale='viridis',
+                title=f"Model Ranking by {primary.replace('_',' ').title()}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
     else:
-        metrics = ['r2_score', 'mse', 'mae']
-        metric_names = ['R² Score', 'MSE', 'MAE']
-    
-    # Performance comparison bar chart
-    fig = go.Figure()
-    
-    for i, (metric, name) in enumerate(zip(metrics[:2], metric_names[:2])):  # Show top 2 metrics
-        if metric in models_df.columns:
-            fig.add_trace(go.Bar(
-                name=name,
-                x=models_df['model'],
-                y=models_df[metric],
-                yaxis=f'y{i+1}' if i > 0 else 'y'
-            ))
-    
-    fig.update_layout(
-        title="Model Performance Comparison",
-        xaxis_title="Models",
-        barmode='group',
-        height=500
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Radar chart for comprehensive comparison
-    if len(metrics) >= 3:
-        st.subheader("Comprehensive Performance Radar")
-        
-        fig = go.Figure()
-        
-        for _, row in models_df.iterrows():
-            values = []
-            for metric in metrics[:4]:  # Use up to 4 metrics
-                if metric in row and pd.notna(row[metric]):
-                    # Normalize MSE and MAE (lower is better) for radar chart
-                    if metric in ['mse', 'mae']:
-                        max_val = models_df[metric].max()
-                        normalized = 1 - (row[metric] / max_val) if max_val > 0 else 0
-                    else:
-                        normalized = row[metric]
-                    values.append(normalized)
-                else:
-                    values.append(0)
-            
-            fig.add_trace(go.Scatterpolar(
-                r=values + [values[0]],  # Close the polygon
-                theta=metric_names[:len(values)] + [metric_names[0]],
-                fill='toself',
-                name=row['model']
-            ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 1]
-                )),
-            showlegend=True,
-            title="Multi-Metric Performance Comparison"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        metrics = ['r2_score', 'mse', 'mae', 'rmse']
+        present = [m for m in metrics if m in models_df.columns]
+        if len(present) == 0:
+            st.info("No regression metrics found in results. Please re-run training.")
+        else:
+            primary = 'r2_score' if 'r2_score' in present else present
+            fig = px.bar(
+                models_df.sort_values(primary, ascending=False),
+                x='model', y=primary, color=primary, color_continuous_scale='viridis',
+                title=f"Model Ranking by {primary.replace('_',' ').title()}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
+# Tab 2: Best Model Details
 with tab2:
-    st.subheader(f"Best Model: {best_model['name']}")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
+    st.subheader(f"Best Model: {best_model.get('name','N/A')}")
+
+    colA, colB = st.columns(2)
+
+    with colA:
         st.markdown("**Performance Metrics:**")
-        
         if problem_type == "classification":
             metrics_to_show = [
                 ('Accuracy', 'accuracy'),
@@ -161,182 +135,117 @@ with tab2:
                 ('Mean Absolute Error', 'mae'),
                 ('Root MSE', 'rmse')
             ]
-        
-        for name, key in metrics_to_show:
-            if key in best_model:
-                st.metric(name, f"{best_model[key]:.4f}")
-    
-    with col2:
+
+        for label, key in metrics_to_show:
+            val = best_model.get(key)
+            # Derive from table if missing, only for primary keys
+            if val is None and key in models_df.columns:
+                val = _derive_metric(models_df, key, higher_is_better=(key not in ['mse','mae','rmse']))
+            st.metric(label, f"{val:.4f}" if isinstance(val, (int, float)) else "N/A")
+
+    with colB:
         st.markdown("**Model Parameters:**")
-        if 'best_params' in best_model:
-            params_df = pd.DataFrame(list(best_model['best_params'].items()), 
-                                   columns=['Parameter', 'Value'])
+        params = best_model.get('best_params')
+        if isinstance(params, dict) and len(params) > 0:
+            params_df = pd.DataFrame(list(params.items()), columns=['Parameter', 'Value'])
             st.dataframe(params_df, use_container_width=True, hide_index=True)
         else:
-            st.info("No hyperparameters to display")
-    
-    # Training progress if available
-    if 'training_history' in best_model:
+            st.info("No hyperparameters to display.")
+
+    # Optional training history if provided
+    if 'training_history' in best_model and best_model['training_history']:
         st.subheader("Training Progress")
         history = best_model['training_history']
-        if history:
-            fig = px.line(x=range(len(history)), y=history, title="Training Score Over Iterations")
-            fig.update_xaxis(title="Iteration")
-            fig.update_yaxis(title="Score")
-            st.plotly_chart(fig, use_container_width=True)
+        fig = px.line(x=range(len(history)), y=history, title="Training Score Over Iterations")
+        fig.update_xaxis(title="Iteration")
+        fig.update_yaxis(title="Score")
+        st.plotly_chart(fig, use_container_width=True)
 
+# Tab 3: Feature Importance
 with tab3:
     st.subheader("Feature Importance Analysis")
-    
-    if 'feature_importance' in best_model and best_model['feature_importance'] is not None:
-        feature_data = best_model['feature_importance']
-        if 'features' in feature_data and 'importance' in feature_data:
-            features = feature_data['features']
-            importance = feature_data['importance']
-            
-            # Ensure both lists have the same length
-            if len(features) == len(importance):
-                importance_df = pd.DataFrame({
-                    'Feature': features,
-                    'Importance': importance
-                }).sort_values('Importance', ascending=True)
-            else:
-                st.error("Feature importance data is malformed.")
-                importance_df = None
-        else:
-            st.error("Feature importance data is incomplete.")
-            importance_df = None
-        
-        # Feature importance bar chart
-        if importance_df is not None:
-            fig = px.bar(importance_df.tail(15), 
-                        x='Importance', 
-                        y='Feature',
-                        orientation='h',
-                        title="Top 15 Most Important Features")
-            fig.update_layout(height=500)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Feature importance insights
-            st.subheader("Feature Insights")
-            top_features = importance_df.tail(5)['Feature'].tolist()
-            st.success(f"🎯 **Top 5 Most Important Features:** {', '.join(top_features)}")
-            
-            # Low importance features
-            low_importance = importance_df[importance_df['Importance'] < 0.01]
-            if len(low_importance) > 0:
-                st.warning(f"⚠️ **{len(low_importance)} features** have very low importance (< 1%) and could potentially be removed.")
-    
+    fi = best_model.get('feature_importance')
+    if isinstance(fi, dict) and len(fi) > 0:
+        importance_df = pd.DataFrame({'Feature': list(fi.keys()), 'Importance': list(fi.values())})
+        importance_df = importance_df.sort_values('Importance', ascending=True)
+        top = importance_df.tail(15)
+        fig = px.bar(
+            top, x='Importance', y='Feature', orientation='h',
+            title="Top 15 Most Important Features", color='Importance', color_continuous_scale='viridis'
+        )
+        fig.update_layout(height=max(400, len(top) * 30))
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Feature Insights")
+        top_features = top['Feature'].tolist()[::-1][:5]
+        st.success(f"🎯 Top 5 Features: {', '.join(top_features)}")
     else:
         st.info("Feature importance is not available for this model type.")
 
+# Tab 4: Confusion (classification) or Residuals (regression)
 with tab4:
     if problem_type == "classification":
         st.subheader("Confusion Matrix")
-        
-        if 'confusion_matrix' in best_model:
-            cm = best_model['confusion_matrix']
-            
-            # Create confusion matrix heatmap
+        cm = best_model.get('confusion_matrix')
+        if cm is not None:
+            cm = np.array(cm)
             fig = go.Figure(data=go.Heatmap(
-                z=cm,
-                text=cm,
-                texttemplate="%{text}",
-                textfont={"size": 16},
-                colorscale='Blues'
+                z=cm, text=cm, texttemplate="%{text}", textfont={"size": 16}, colorscale='Blues'
             ))
-            
-            fig.update_layout(
-                title="Confusion Matrix",
-                xaxis_title="Predicted",
-                yaxis_title="Actual",
-                height=400
-            )
-            
+            fig.update_layout(title="Confusion Matrix", xaxis_title="Predicted", yaxis_title="Actual", height=400)
             st.plotly_chart(fig, use_container_width=True)
-            
-            # Classification insights
-            if len(cm) == 2:  # Binary classification
+
+            if cm.size == 4:  # binary
                 tn, fp, fn, tp = cm.ravel()
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("True Positives", tp)
-                with col2:
-                    st.metric("True Negatives", tn)
-                with col3:
-                    st.metric("False Positives", fp)
-                with col4:
-                    st.metric("False Negatives", fn)
+                c1, c2, c3, c4 = st.columns(4)
+                with c1: st.metric("True Positives", tp)
+                with c2: st.metric("True Negatives", tn)
+                with c3: st.metric("False Positives", fp)
+                with c4: st.metric("False Negatives", fn)
         else:
             st.info("Confusion matrix not available.")
-    
     else:
         st.subheader("Residual Analysis")
-        
-        if 'residuals' in best_model:
-            residuals = best_model['residuals']
-            predictions = best_model['predictions']
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Residuals vs Predictions
-                fig = px.scatter(x=predictions, y=residuals, 
-                               title="Residuals vs Predictions",
-                               labels={'x': 'Predictions', 'y': 'Residuals'})
+        residuals = best_model.get('residuals')
+        preds = best_model.get('predictions')
+        if residuals is not None and preds is not None:
+            residuals = np.array(residuals)
+            preds = np.array(preds)
+            c1, c2 = st.columns(2)
+            with c1:
+                fig = px.scatter(x=preds, y=residuals, title="Residuals vs Predictions",
+                                 labels={'x': 'Predictions', 'y': 'Residuals'})
                 fig.add_hline(y=0, line_dash="dash", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                # Residuals distribution
+            with c2:
                 fig = px.histogram(residuals, title="Residuals Distribution",
-                                 labels={'value': 'Residuals', 'count': 'Frequency'})
+                                   labels={'value': 'Residuals', 'count': 'Frequency'})
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Residual analysis not available.")
 
-# Model Improvement Analysis
-if 'improvement_analysis' in results:
-    st.header("🔧 Automated Improvement Analysis")
-    
-    improvement = results['improvement_analysis']
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.markdown("**Improvement Techniques Applied:**")
-        for technique in improvement.get('techniques_applied', []):
-            st.markdown(f"✅ {technique}")
-        
-        if improvement.get('performance_gain', 0) > 0:
-            st.success(f"🚀 **Performance Improvement:** +{improvement['performance_gain']:.3f}")
-        else:
-            st.info("🔍 **No significant improvement found** - Your model is already well-optimized!")
-    
-    with col2:
-        if 'before_after' in improvement:
-            before_after = improvement['before_after']
-            st.metric("Before Optimization", f"{before_after['before']:.3f}")
-            st.metric("After Optimization", f"{before_after['after']:.3f}")
-
 # Save Best Model
 st.header("💾 Save Best Model")
 
-col1, col2 = st.columns([3, 1])
+colA, colB = st.columns([3, 1])
+with colA:
+    perf_val = None
+    if problem_type == 'classification':
+        perf_val = best_model.get('accuracy')
+        if perf_val is None:
+            perf_val = _derive_metric(models_df, 'accuracy', higher_is_better=True)
+    else:
+        perf_val = best_model.get('r2_score')
+        if perf_val is None:
+            perf_val = _derive_metric(models_df, 'r2_score', higher_is_better=True)
 
-with col1:
     st.markdown(f"""
     **Your best performing model is ready for deployment:**
-    
-    - **Model:** {best_model['name']}
-    - **Performance:** {best_model.get('accuracy' if problem_type == 'classification' else 'r2_score', 0):.3f}
+    - **Model:** {best_model.get('name', 'N/A')}
+    - **Performance:** {f"{perf_val:.3f}" if isinstance(perf_val, (int,float)) else "N/A"}
     - **Status:** Trained and optimized
-    
-    You can now proceed to view detailed results or generate a demo application.
     """)
-
-with col2:
+with colB:
     if st.button("Approve Model →", type="primary", use_container_width=True):
         st.session_state.best_model = best_model
         st.session_state.workflow_stage = 'results'
@@ -345,13 +254,11 @@ with col2:
 
 # Navigation
 st.markdown("---")
-col1, col2 = st.columns([1, 1])
-
-with col1:
+c1, c2 = st.columns([1, 1])
+with c1:
     if st.button("← Back to Code Editor", use_container_width=True):
         st.switch_page("pages/3_Checkpoint_2_Code_Editor.py")
-
-with col2:
+with c2:
     if st.session_state.get('best_model') is not None:
         if st.button("Next: Results Dashboard →", use_container_width=True, type="primary"):
             st.switch_page("pages/5_Results_Dashboard.py")
